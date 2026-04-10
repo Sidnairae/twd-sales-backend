@@ -1,8 +1,8 @@
 import os
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from anthropic import Anthropic
-from tavily import TavilyClient
 from app.lib.auth import get_current_user
 from app.lib.supabase_client import get_admin_client
 
@@ -31,8 +31,13 @@ def research(body: ResearchRequest, user=Depends(get_current_user)):
     p = project.data
     query = f"{p['name']} {p['company_name']} marine engineering project {p['country']}"
 
-    tavily = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
-    results = tavily.search(query=query, search_depth="advanced", max_results=5)
+    resp = httpx.post(
+        "https://api.tavily.com/search",
+        json={"api_key": os.environ["TAVILY_API_KEY"], "query": query, "search_depth": "advanced", "max_results": 5},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    results = resp.json()
 
     sources_text = "\n\n".join(
         f"**{r.get('title')}**\n{r.get('content', '')[:500]}"
