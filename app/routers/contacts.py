@@ -17,24 +17,26 @@ class ContactUpdate(BaseModel):
 def update_contact(contact_id: str, body: ContactUpdate, user=Depends(get_current_user)):
     supabase = get_admin_client()
 
-    contact = supabase.table("contacts").select("id, project_id").eq("id", contact_id).single().execute()
+    contact = supabase.table("contacts").select("id, project_id").eq("id", contact_id).maybe_single().execute()
     if not contact.data:
         raise HTTPException(status_code=404, detail="Contact not found")
 
     project = supabase.table("projects").select("id").eq(
         "id", contact.data["project_id"]
-    ).eq("user_id", user.id).single().execute()
+    ).eq("user_id", user.id).maybe_single().execute()
     if not project.data:
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    # If marking this contact as main, unset all others in same project first
     if body.is_main_contact is True:
         supabase.table("contacts").update({"is_main_contact": False}).eq(
             "project_id", contact.data["project_id"]
         ).execute()
 
-    update = {k: v for k, v in body.model_dump().items() if v is not None}
-    if body.is_main_contact is False:
-        update["is_main_contact"] = False
+    # Use exclude_unset so explicit False values are included, unset fields are skipped
+    update = body.model_dump(exclude_unset=True)
+    if not update:
+        return {"ok": True}
 
     supabase.table("contacts").update(update).eq("id", contact_id).execute()
     return {"ok": True}

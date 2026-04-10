@@ -1,5 +1,6 @@
 import io
 import re
+from datetime import datetime, date as date_type
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from typing import List
 import openpyxl
@@ -44,6 +45,31 @@ def parse_value(raw) -> int | None:
     except Exception:
         return None
 
+def parse_date(raw) -> str | None:
+    """Parse a cell value to ISO date string, handling Excel date objects."""
+    if raw is None:
+        return None
+    # Excel gives us datetime/date objects directly
+    if isinstance(raw, datetime):
+        return raw.date().isoformat()
+    if isinstance(raw, date_type):
+        return raw.isoformat()
+    s = str(raw).strip()
+    if not s or s.lower() in ["none", "nan", ""]:
+        return None
+    for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d", "%d-%m-%Y", "%b %Y", "%B %Y"]:
+        try:
+            return datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            pass
+    return s  # return as-is; scoring will handle unknown formats gracefully
+
+def safe_str(val) -> str | None:
+    if val is None:
+        return None
+    s = str(val).strip()
+    return s if s and s.lower() not in ["none", "nan"] else None
+
 def parse_contacts(row: list, headers: list[str]) -> list[dict]:
     contacts = []
     for i in range(1, 7):
@@ -53,15 +79,20 @@ def parse_contacts(row: list, headers: list[str]) -> list[dict]:
         lin_idx   = find_col(headers, [f"linkedin {i}", f"linkedin url {i}"])
 
         name = row[name_idx] if name_idx is not None and name_idx < len(row) else None
-        if not name or str(name).strip().lower() in ["", "nan", "none"]:
+        name = safe_str(name)
+        if not name:
             continue
         contacts.append({
-            "name":        str(name).strip(),
-            "title":       str(row[title_idx]).strip() if title_idx is not None and title_idx < len(row) else "",
-            "email":       str(row[email_idx]).strip() if email_idx is not None and email_idx < len(row) else None,
-            "linkedin_url": str(row[lin_idx]).strip() if lin_idx is not None and lin_idx < len(row) else None,
+            "name":         name,
+            "title":        safe_str(row[title_idx]) if title_idx is not None and title_idx < len(row) else "",
+            "email":        safe_str(row[email_idx]) if email_idx is not None and email_idx < len(row) else None,
+            "linkedin_url": safe_str(row[lin_idx])  if lin_idx is not None and lin_idx < len(row) else None,
         })
     return contacts
+
+def chunk(lst: list, size: int):
+    for i in range(0, len(lst), size):
+        yield lst[i:i + size]
 
 @router.post("/import")
 async def import_projects(
@@ -74,7 +105,7 @@ async def import_projects(
     errors = []
 
     for file in files:
-        if not file.filename or not file.filename.endswith(".xlsx"):
+        if not file.filename or not file.filename.lower().endswith(".xlsx"):
             errors.append(f"{file.filename}: not an xlsx file")
             continue
 
@@ -83,7 +114,7 @@ async def import_projects(
             wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
             ws = wb.active
         except Exception as e:
-            errors.append(f"{file.filename}: {e}")
+            errors.append(f"{file.filename}: failed to open — {e}")
             continue
 
         # Find header row (search rows 1-12)
@@ -101,7 +132,6 @@ async def import_projects(
             continue
 
         col_map = {field: find_col(headers, keys) for field, keys in COLUMN_MAP.items()}
-        type_idx = col_map.get("project_type")
 
         projects_to_upsert = []
         contacts_to_insert = []
@@ -114,10 +144,13 @@ async def import_projects(
                 idx = col_map.get(field)
                 if idx is None or idx >= len(row):
                     return None
-                val = row[idx]
-                if val is None:
+                return safe_str(row[idx])
+
+            def get_raw(field):
+                idx = col_map.get(field)
+                if idx is None or idx >= len(row):
                     return None
-                return str(val).strip() or None
+                return row[idx]
 
             # Skip sub-projects
             ptype = get("project_type") or ""
@@ -125,12 +158,12 @@ async def import_projects(
                 total_subs += 1
                 continue
 
-            raw_id   = get("globaldata_id")
-            name     = get("name") or "Unnamed project"
-            desc     = get("description")
-            country  = get("country")
-            status   = get("status") or ""
-            sector   = get("sector")
+            raw_id  = get("globaldata_id")
+            name    = get("name") or "Unnamed project"
+            desc    = get("description")
+            country = get("country")
+            status  = get("status") or ""
+            sector  = get("sector")
 
             fid = detect_fid(desc)
             contractor_detected, contractor_name = detect_contractor(desc)
@@ -149,11 +182,11 @@ async def import_projects(
                 "sector":              auto_categorize(name, desc, sector),
                 "stage_normalized":    normalize_stage(status),
                 "status":              status,
-                "project_value_usd":   parse_value(get("project_value_usd")),
-                "execution_date":      get("execution_date"),
+                "project_value_usd":   parse_value(get_raw("project_value_usd")),
+                "execution_date":      parse_date(get_raw("execution_date")),
                 "description":         desc,
                 "project_url":         get("project_url"),
-                "momentum_score":      parse_value(get("momentum_score")),
+                "momentum_score":      parse_value(get_raw("momentum_score")),
                 "fid_detected":        fid,
                 "contractor_detected": contractor_detected,
                 "contractor_name":     contractor_name,
@@ -164,14 +197,13 @@ async def import_projects(
             for c in project_contacts:
                 contacts_to_insert.append({**c, "globaldata_id": project["globaldata_id"]})
 
-        # Upsert projects
         if projects_to_upsert:
-            supabase.table("projects").upsert(
-                projects_to_upsert,
-                on_conflict="globaldata_id,user_id",
-            ).execute()
+            # Upsert in chunks to avoid payload limits
+            for batch in chunk(projects_to_upsert, 200):
+                supabase.table("projects").upsert(
+                    batch, on_conflict="globaldata_id,user_id"
+                ).execute()
 
-            # Upsert contacts (fetch project ids first)
             if contacts_to_insert:
                 gd_ids = [p["globaldata_id"] for p in projects_to_upsert]
                 proj_rows = supabase.table("projects").select("id, globaldata_id").in_(
@@ -180,26 +212,31 @@ async def import_projects(
                 gd_to_id = {r["globaldata_id"]: r["id"] for r in proj_rows.data or []}
 
                 final_contacts = []
+                seen_gd_ids = set()
                 for c in contacts_to_insert:
-                    pid = gd_to_id.get(c.pop("globaldata_id"))
+                    gd_id = c.pop("globaldata_id")
+                    pid = gd_to_id.get(gd_id)
                     if pid:
                         final_contacts.append({
-                            "project_id":  pid,
-                            "name":        c["name"],
-                            "title":       c.get("title") or "",
-                            "email":       c.get("email"),
+                            "project_id":   pid,
+                            "name":         c["name"],
+                            "title":        c.get("title") or "",
+                            "email":        c.get("email"),
                             "linkedin_url": c.get("linkedin_url"),
-                            "source":      "globaldata",
-                            "role_type":   "other",
+                            "source":       "globaldata",
+                            "role_type":    "other",
                         })
+                        seen_gd_ids.add(gd_id)
 
                 if final_contacts:
-                    # Delete old globaldata contacts and re-insert
                     project_ids = list(gd_to_id.values())
-                    supabase.table("contacts").delete().in_(
-                        "project_id", project_ids
-                    ).eq("source", "globaldata").execute()
-                    supabase.table("contacts").insert(final_contacts).execute()
+                    # Delete old globaldata contacts and re-insert
+                    for id_batch in chunk(project_ids, 200):
+                        supabase.table("contacts").delete().in_(
+                            "project_id", id_batch
+                        ).eq("source", "globaldata").execute()
+                    for batch in chunk(final_contacts, 200):
+                        supabase.table("contacts").insert(batch).execute()
 
         total_imported += len(projects_to_upsert)
 
