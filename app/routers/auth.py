@@ -21,7 +21,11 @@ def login(body: LoginRequest):
         timeout=15,
     )
     if r.status_code != 200:
-        detail = r.json().get("error_description") or r.json().get("msg") or "Login failed"
+        try:
+            body = r.json()
+            detail = body.get("error_description") or body.get("message") or body.get("msg") or body.get("error") or str(body)
+        except Exception:
+            detail = r.text
         raise HTTPException(status_code=401, detail=detail)
 
     data = r.json()
