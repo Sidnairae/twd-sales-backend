@@ -12,7 +12,7 @@ class LoginRequest(BaseModel):
 @router.post("/login")
 def login(body: LoginRequest):
     supabase_url = os.environ["SUPABASE_URL"]
-    api_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    api_key = os.environ["SUPABASE_ANON_KEY"]
 
     r = httpx.post(
         f"{supabase_url}/auth/v1/token?grant_type=password",
