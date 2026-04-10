@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from app.routers import projects, import_data, contacts, favorites, sync_scores, summarize, meeting_prep, research, clear
+from app.routers import projects, import_data, contacts, favorites, sync_scores, summarize, meeting_prep, research, clear, auth
 
 app = FastAPI(title="TWD Sales Assistant API", version="1.0.0")
 
@@ -25,6 +25,7 @@ app.include_router(summarize.router,    prefix="/api", tags=["summarize"])
 app.include_router(meeting_prep.router, prefix="/api", tags=["meeting_prep"])
 app.include_router(research.router,     prefix="/api", tags=["research"])
 app.include_router(clear.router,        prefix="/api", tags=["clear"])
+app.include_router(auth.router,         prefix="/api", tags=["auth"])
 
 @app.get("/health")
 def health():
