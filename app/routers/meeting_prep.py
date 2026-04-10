@@ -20,10 +20,11 @@ def meeting_prep(project_id: str, user=Depends(get_current_user)):
         "project_id", project_id
     ).execute()
 
-    contact_list = "\n".join(
-        f"- {c['name']} ({c['title']}){f' — {c[\"email\"]}' if c.get('email') else ''}"
-        for c in contacts.data or []
-    ) or "No contacts available"
+    def fmt_contact(c):
+        email_part = f" — {c['email']}" if c.get('email') else ""
+        return f"- {c['name']} ({c['title']}){email_part}"
+
+    contact_list = "\n".join(fmt_contact(c) for c in contacts.data or []) or "No contacts available"
 
     client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     prompt = f"""You are a BD strategist for TWD, a marine and offshore engineering consultancy.
