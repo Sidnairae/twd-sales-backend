@@ -1,32 +1,50 @@
-import os
-from fastapi import APIRouter, Depends, HTTPException
-from anthropic import Anthropic
-from app.lib.auth import get_current_user
-from app.lib.supabase_client import get_admin_client
+"""
+meeting_prep.py — generate a BD meeting preparation card for a project.
 
-router = APIRouter()
+Uses Claude Sonnet to produce a structured card covering situation summary,
+key questions, TWD value proposition, red flags, and next steps.
+"""
+
+import logging
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.config import TABLE_PROJECTS, TABLE_CONTACTS, CLAUDE_SMART_MODEL
+from app.lib.auth import get_current_user
+from app.lib.clients import get_admin_client, get_anthropic_client
+
+logger = logging.getLogger(__name__)
+router  = APIRouter()
+
 
 @router.post("/meeting-prep/{project_id}")
 def meeting_prep(project_id: str, user=Depends(get_current_user)):
+    """
+    Generate a meeting prep card for a specific project.
+    Includes project context, key contacts, and AI-generated BD guidance.
+    """
     supabase = get_admin_client()
-    project = supabase.table("projects").select("*").eq("id", project_id).eq(
-        "user_id", user.id
-    ).single().execute()
+
+    project = supabase.table(TABLE_PROJECTS).select("*").eq(
+        "id", project_id
+    ).eq("user_id", user.id).single().execute()
+
     if not project.data:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    p = project.data
-    contacts = supabase.table("contacts").select("name, title, email").eq(
-        "project_id", project_id
-    ).execute()
+    p        = project.data
+    contacts = supabase.table(TABLE_CONTACTS).select(
+        "name, title, email"
+    ).eq("project_id", project_id).execute()
 
-    def fmt_contact(c):
-        email_part = f" — {c['email']}" if c.get('email') else ""
+    def fmt_contact(c: dict) -> str:
+        email_part = f" — {c['email']}" if c.get("email") else ""
         return f"- {c['name']} ({c['title']}){email_part}"
 
-    contact_list = "\n".join(fmt_contact(c) for c in contacts.data or []) or "No contacts available"
+    contact_list = (
+        "\n".join(fmt_contact(c) for c in contacts.data or [])
+        or "No contacts available"
+    )
 
-    client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     prompt = f"""You are a BD strategist for TWD, a marine and offshore engineering consultancy.
 Generate a meeting preparation card for this project.
 
@@ -36,10 +54,10 @@ Country: {p.get('country')}
 Value: ${(p.get('project_value_usd') or 0) / 1e6:.1f}M
 Status: {p.get('status')}
 Execution: {p.get('execution_date') or 'Unknown'}
-FID: {'Yes' if p.get('fid_detected') else 'No'}
+FID confirmed: {'Yes' if p.get('fid_detected') else 'No'}
 Contractor: {p.get('contractor_name') or ('Selected' if p.get('contractor_detected') else 'Not selected')}
 
-Description: {p.get('description') or 'No description'}
+Description: {p.get('description') or 'No description available'}
 
 Key Contacts:
 {contact_list}
@@ -52,8 +70,8 @@ Provide:
 5. **Suggested next steps**
 """
 
-    msg = client.messages.create(
-        model="claude-sonnet-4-6",
+    msg = get_anthropic_client().messages.create(
+        model=CLAUDE_SMART_MODEL,
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}],
     )

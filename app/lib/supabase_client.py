@@ -1,14 +1,10 @@
-import os
-from supabase import create_client, Client
+"""
+supabase_client.py — kept for backward compatibility only.
 
-def get_admin_client() -> Client:
-    return create_client(
-        os.environ["SUPABASE_URL"],
-        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
-    )
+New code should import directly from app.lib.clients:
+    from app.lib.clients import get_admin_client, get_anon_client
+"""
 
-def get_anon_client() -> Client:
-    return create_client(
-        os.environ["SUPABASE_URL"],
-        os.environ["SUPABASE_ANON_KEY"],
-    )
+from app.lib.clients import get_admin_client, get_anon_client
+
+__all__ = ["get_admin_client", "get_anon_client"]

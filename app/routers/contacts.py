@@ -1,42 +1,70 @@
+"""
+contacts.py — update contact metadata (main contact flag, outreach tracking).
+
+Ownership is enforced: a contact can only be updated if it belongs to a
+project owned by the authenticated user.
+"""
+
+import logging
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
-from app.lib.auth import get_current_user
-from app.lib.supabase_client import get_admin_client
 
-router = APIRouter()
+from app.config import TABLE_CONTACTS, TABLE_PROJECTS
+from app.lib.auth import get_current_user
+from app.lib.clients import get_admin_client
+
+logger = logging.getLogger(__name__)
+router  = APIRouter()
+
 
 class ContactUpdate(BaseModel):
-    is_main_contact: Optional[bool] = None
+    is_main_contact:       Optional[bool] = None
     is_contractor_contact: Optional[bool] = None
-    outreach_sentiment: Optional[str] = None
-    outreach_notes: Optional[str] = None
-    outreach_date: Optional[str] = None
+    outreach_sentiment:    Optional[str]  = None
+    outreach_notes:        Optional[str]  = None
+    outreach_date:         Optional[str]  = None
+
 
 @router.patch("/contacts/{contact_id}")
 def update_contact(contact_id: str, body: ContactUpdate, user=Depends(get_current_user)):
+    """
+    Update outreach tracking or contact flags for a single contact.
+
+    Setting is_main_contact=true automatically clears that flag on all
+    other contacts in the same project (only one main contact per project).
+    Only fields explicitly included in the request body are updated —
+    omitted fields are left unchanged.
+    """
     supabase = get_admin_client()
 
-    contact = supabase.table("contacts").select("id, project_id").eq("id", contact_id).maybe_single().execute()
+    # Verify contact exists
+    contact = supabase.table(TABLE_CONTACTS).select(
+        "id, project_id"
+    ).eq("id", contact_id).maybe_single().execute()
+
     if not contact.data:
         raise HTTPException(status_code=404, detail="Contact not found")
 
-    project = supabase.table("projects").select("id").eq(
+    # Verify the contact's project belongs to this user
+    project = supabase.table(TABLE_PROJECTS).select("id").eq(
         "id", contact.data["project_id"]
     ).eq("user_id", user.id).maybe_single().execute()
+
     if not project.data:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    # If marking this contact as main, unset all others in same project first
+    # Enforce single main contact per project
     if body.is_main_contact is True:
-        supabase.table("contacts").update({"is_main_contact": False}).eq(
+        supabase.table(TABLE_CONTACTS).update({"is_main_contact": False}).eq(
             "project_id", contact.data["project_id"]
         ).execute()
 
-    # Use exclude_unset so explicit False values are included, unset fields are skipped
+    # Only update fields that were explicitly sent in the request
     update = body.model_dump(exclude_unset=True)
     if not update:
         return {"ok": True}
 
-    supabase.table("contacts").update(update).eq("id", contact_id).execute()
+    supabase.table(TABLE_CONTACTS).update(update).eq("id", contact_id).execute()
     return {"ok": True}
