@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from app.config import (
     TABLE_PROJECTS,
@@ -26,15 +25,12 @@ from app.config import (
 )
 from app.lib.auth import get_current_user
 from app.lib.clients import get_admin_client, get_anthropic_client
+from app.schemas import ResearchRequest, ResearchResponse
 
 logger = logging.getLogger(__name__)
 router  = APIRouter()
 
 BING_SEARCH_URL = "https://api.bing.microsoft.com/v7.0/search"
-
-
-class ResearchRequest(BaseModel):
-    project_id: str
 
 
 def _run_bing_search(query: str, api_key: str) -> str:
@@ -82,7 +78,7 @@ def _is_cache_fresh(searched_at: str | None) -> bool:
         return False
 
 
-@router.post("/research")
+@router.post("/research", response_model=ResearchResponse)
 def research(body: ResearchRequest, user=Depends(get_current_user)):
     """
     Generate a BD intelligence report for a project.

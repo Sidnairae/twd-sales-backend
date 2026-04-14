@@ -11,12 +11,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.config import TABLE_PROJECTS, TABLE_CONTACTS, CLAUDE_SMART_MODEL
 from app.lib.auth import get_current_user
 from app.lib.clients import get_admin_client, get_anthropic_client
+from app.schemas import MeetingPrepResponse
 
 logger = logging.getLogger(__name__)
 router  = APIRouter()
 
 
-@router.post("/meeting-prep/{project_id}")
+@router.post("/meeting-prep/{project_id}", response_model=MeetingPrepResponse)
 def meeting_prep(project_id: str, user=Depends(get_current_user)):
     """
     Generate a meeting prep card for a specific project.

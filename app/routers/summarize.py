@@ -7,25 +7,17 @@ into 2-3 actionable sentences for the BD team.
 
 import logging
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
 
 from app.config import CLAUDE_FAST_MODEL
 from app.lib.auth import get_current_user
 from app.lib.clients import get_anthropic_client
+from app.schemas import SummarizeRequest, SummarizeResponse
 
 logger = logging.getLogger(__name__)
 router  = APIRouter()
 
-# Cap input length to avoid sending huge payloads to the Claude API.
-# GlobalData descriptions are rarely longer than 2 000 characters.
-MAX_DESCRIPTION_LENGTH = 8_000
 
-
-class SummarizeRequest(BaseModel):
-    description: str = Field(..., max_length=MAX_DESCRIPTION_LENGTH)
-
-
-@router.post("/summarize")
+@router.post("/summarize", response_model=SummarizeResponse)
 def summarize(body: SummarizeRequest, user=Depends(get_current_user)):
     """
     Summarise a project description into 2-3 concise sentences.

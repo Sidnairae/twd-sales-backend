@@ -22,12 +22,13 @@ from app.config import (
 )
 from app.lib.auth import get_current_user
 from app.lib.clients import get_admin_client
+from app.schemas import ClearResponse
 
 logger = logging.getLogger(__name__)
 router  = APIRouter()
 
 
-@router.delete("/clear")
+@router.delete("/clear", response_model=ClearResponse)
 def clear_user_data(
     confirm: bool = Query(
         default=False,

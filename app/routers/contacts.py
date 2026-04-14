@@ -6,28 +6,19 @@ project owned by the authenticated user.
 """
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from app.config import TABLE_CONTACTS, TABLE_PROJECTS
 from app.lib.auth import get_current_user
 from app.lib.clients import get_admin_client
+from app.schemas import ContactUpdate, OkResponse
 
 logger = logging.getLogger(__name__)
 router  = APIRouter()
 
 
-class ContactUpdate(BaseModel):
-    is_main_contact:       Optional[bool] = None
-    is_contractor_contact: Optional[bool] = None
-    outreach_sentiment:    Optional[str]  = None
-    outreach_notes:        Optional[str]  = None
-    outreach_date:         Optional[str]  = None
-
-
-@router.patch("/contacts/{contact_id}")
+@router.patch("/contacts/{contact_id}", response_model=OkResponse)
 def update_contact(contact_id: str, body: ContactUpdate, user=Depends(get_current_user)):
     """
     Update outreach tracking or contact flags for a single contact.

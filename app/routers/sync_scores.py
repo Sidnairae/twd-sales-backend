@@ -31,6 +31,7 @@ from app.lib.auth import get_current_user
 from app.lib.clients import get_admin_client
 from app.lib.scoring import score_project, get_week_start
 from app.lib.utils import chunk
+from app.schemas import SyncResponse
 
 logger = logging.getLogger(__name__)
 router  = APIRouter()
@@ -66,7 +67,7 @@ def _find_history(company_name: str | None, hs_map: dict) -> dict | None:
     return None
 
 
-@router.post("/sync")
+@router.post("/sync", response_model=SyncResponse)
 def sync_scores(user=Depends(get_current_user)):
     """
     Recalculate and store priority scores for all of the user's projects.

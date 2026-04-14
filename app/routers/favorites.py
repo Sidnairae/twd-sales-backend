@@ -3,27 +3,19 @@ favorites.py — toggle and retrieve a user's favourite projects.
 """
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 
 from app.config import TABLE_FAVORITES
 from app.lib.auth import get_current_user
 from app.lib.clients import get_admin_client
+from app.schemas import FavoriteToggle, FavoritesResponse, FavoriteToggleResponse
 
 logger = logging.getLogger(__name__)
 router  = APIRouter()
 
 
-class FavoriteToggle(BaseModel):
-    project_id:   Optional[str] = None
-    globaldata_id: str
-    project_name: Optional[str] = None
-    company_name: Optional[str] = None
-
-
-@router.get("/favorites")
+@router.get("/favorites", response_model=FavoritesResponse)
 def get_favorites(user=Depends(get_current_user)):
     """Return all favourited projects for the authenticated user, newest first."""
     supabase = get_admin_client()
@@ -36,7 +28,7 @@ def get_favorites(user=Depends(get_current_user)):
     return {"favorites": data.data or []}
 
 
-@router.post("/favorites")
+@router.post("/favorites", response_model=FavoriteToggleResponse)
 def toggle_favorite(body: FavoriteToggle, user=Depends(get_current_user)):
     """
     Toggle the favourite state for a project.

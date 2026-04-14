@@ -14,20 +14,15 @@ import logging
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 from app.config import ENV_SUPABASE_URL, ENV_SUPABASE_ANON_KEY
+from app.schemas import LoginRequest, LoginResponse
 
 logger = logging.getLogger(__name__)
 router  = APIRouter()
 
 
-class LoginRequest(BaseModel):
-    email:    str
-    password: str
-
-
-@router.post("/login")
+@router.post("/login", response_model=LoginResponse)
 def login(body: LoginRequest):
     """
     Authenticate with email + password.

@@ -20,12 +20,13 @@ from app.config import (
 from app.lib.auth import get_current_user
 from app.lib.clients import get_admin_client
 from app.lib.scoring import get_week_start
+from app.schemas import ProjectsResponse
 
 logger = logging.getLogger(__name__)
 router  = APIRouter()
 
 
-@router.get("/projects")
+@router.get("/projects", response_model=ProjectsResponse)
 def get_projects(
     limit:  int = Query(default=100, ge=1, le=500, description="Max projects to return."),
     offset: int = Query(default=0,   ge=0,          description="Number of projects to skip."),

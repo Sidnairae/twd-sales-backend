@@ -32,6 +32,7 @@ from app.lib.categorize import auto_categorize, normalize_stage
 from app.lib.regions import get_world_region
 from app.lib.detect import detect_fid, detect_contractor
 from app.lib.utils import chunk
+from app.schemas import ImportResponse
 
 logger = logging.getLogger(__name__)
 router  = APIRouter()
@@ -145,7 +146,7 @@ def parse_contacts(row: list, headers: list[str]) -> list[dict]:
 # Import endpoint
 # ---------------------------------------------------------------------------
 
-@router.post("/import")
+@router.post("/import", response_model=ImportResponse)
 async def import_projects(
     files: List[UploadFile] = File(...),
     user=Depends(get_current_user),
